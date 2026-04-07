@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Video Earn App</title>
+  <style>
+    body { font-family: Arial; padding:20px; }
+    input, button { padding:10px; margin:5px; width:90%; }
+    button { width:auto; border-radius:8px; }
+  </style>
+</head>
+
+<body>
+
+<!-- 🔐 LOGIN PAGE -->
+<div id="authPage">
+  <h2>🔐 Login / Signup</h2>
+
+  <input id="email" placeholder="Email"><br>
+  <input id="password" type="password" placeholder="Password"><br>
+  <input id="invite" placeholder="Invite Code (optional)"><br>
+
+  <button onclick="signup()">Signup</button>
+  <button onclick="login()">Login</button>
+
+  <br><br>
+
+  <!-- 🔥 GOOGLE LOGIN -->
+  <button onclick="googleLogin()" style="background:#4285F4;color:white;">
+    Login with Google
+  </button>
+</div>
+
+<!-- 🏠 HOME PAGE -->
+<div id="homePage" style="display:none;">
+  <h2>🏠 Home</h2>
+
+  <p>Points: <span id="points">0</span></p>
+  <p>VIP: <span id="vip">0</span></p>
+
+  <button onclick="buyVIP(1)">Buy VIP1 (20000)</button>
+  <button onclick="logout()">Logout</button>
+
+  <hr>
+
+  <h3>🎥 Video</h3>
+  <video id="video" width="100%" controls autoplay muted></video>
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+  GoogleAuthProvider,
+  signInWithPopup
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  collection,
+  getDocs,
+  query,
+  where
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+/* 🔥 CONFIG */
+const firebaseConfig = {
+  apiKey: "AIzaSyCFxPhQdolhryCMuUFJsStBzwDedwM9HzI",
+  authDomain: "video-earn-app-d8290.firebaseapp.com",
+  projectId: "video-earn-app-d8290",
+  storageBucket: "video-earn-app-d8290.firebasestorage.app",
+  messagingSenderId: "958464224507",
+  appId: "1:958464224507:web:f23dbe5604400e3b43945e"
+};
+
+/* INIT */
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+/* GLOBAL USER */
+let currentUserData = null;
+
+/* INVITE CODE */
+function generateCode(){
+  return Math.random().toString(36).substring(2,8).toUpperCase();
+}
+
+/* SIGNUP */
+window.signup = async function(){
+  try{
+    let email = document.getElementById("email").value;
+    let pass = document.getElementById("password").value;
+    let invite = document.getElementById("invite").value;
+
+    let res = await createUserWithEmailAndPassword(auth,email,pass);
+    let uid = res.user.uid;
+
+    await setDoc(doc(db,"users",uid),{
+      points:0,
+      vip:0,
+      inviteCode: generateCode(),
+      referredBy: invite || null
+    });
+
+    alert("Signup success");
+  }catch(e){
+    alert(e.message);
+  }
+}
+
+/* LOGIN */
+window.login = async function(){
+  try{
+    let email = document.getElementById("email").value;
+    let pass = document.getElementById("password").value;
+
+    await signInWithEmailAndPassword(auth,email,pass);
+    alert("Login success");
+  }catch(e){
+    alert(e.message);
+  }
+}
+
+/* 🔥 GOOGLE LOGIN */
+window.googleLogin = async function(){
+  const provider = new GoogleAuthProvider();
+
+  try{
+    let result = await signInWithPopup(auth, provider);
+    let user = result.user;
+
+    let ref = doc(db,"users",user.uid);
+    let snap = await getDoc(ref);
+
+    if(!snap.exists()){
+      await setDoc(ref,{
+        points:0,
+        vip:0,
+        inviteCode: generateCode(),
+        referredBy: null
+      });
+    }
+
+    alert("Google Login Success");
+
+  }catch(e){
+    alert(e.message);
+  }
+}
+
+/* AUTH STATE */
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    document.getElementById("authPage").style.display = "none";
+    document.getElementById("homePage").style.display = "block";
+
+    let docSnap = await getDoc(doc(db,"users",user.uid));
+    currentUserData = docSnap.data();
+
+    document.getElementById("points").innerText = currentUserData.points;
+    document.getElementById("vip").innerText = currentUserData.vip;
+
+    loadVideo();
+
+  } else {
+    document.getElementById("authPage").style.display = "block";
+    document.getElementById("homePage").style.display = "none";
+  }
+});
+
+/* LOGOUT */
+window.logout = function(){
+  signOut(auth);
+}
+
+/* VIP BUY + REFERRAL */
+window.buyVIP = async function(level){
+  let user = auth.currentUser;
+
+  await updateDoc(doc(db,"users",user.uid),{
+    vip: level
+  });
+
+  if(currentUserData.referredBy){
+    let q = query(collection(db,"users"), where("inviteCode","==",currentUserData.referredBy));
+    let snap = await getDocs(q);
+
+    snap.forEach(async (d)=>{
+      let bonus = 20000 * 0.02;
+
+      await updateDoc(doc(db,"users",d.id),{
+        points: d.data().points + bonus
+      });
+    });
+  }
+
+  alert("VIP bought!");
+}
+
+/* VIDEO SYSTEM */
+let videos = [
+  "https://www.w3schools.com/html/mov_bbb.mp4",
+  "https://www.w3schools.com/html/movie.mp4"
+];
+
+let index = 0;
+let watchTime = 0;
+
+function loadVideo(){
+  let v = document.getElementById("video");
+  v.src = videos[index];
+
+  setInterval(async ()=>{
+    watchTime++;
+
+    if(watchTime >= 30){ // 👉 change to 180
+      if(currentUserData.vip > 0){
+
+        let newPoints = currentUserData.points + 20;
+
+        await updateDoc(doc(db,"users",auth.currentUser.uid),{
+          points: newPoints
+        });
+
+        document.getElementById("points").innerText = newPoints;
+        currentUserData.points = newPoints;
+
+        alert("+20 Points");
+      }
+
+      watchTime = 0;
+      index = (index+1) % videos.length;
+      v.src = videos[index];
+    }
+
+  },1000);
+}
+
+</script>
+
+</body>
+</html>
